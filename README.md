@@ -1,4 +1,4 @@
-# AgentGuard MCP
+# AgentGuard MCP - AI Agent Permission & Audit Platform
 
 AgentGuard MCP is an AI agent governance platform built around the **Model Context Protocol (MCP)**.
 
