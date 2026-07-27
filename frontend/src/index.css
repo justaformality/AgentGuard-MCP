@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+:root {
+    font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    background: #070b14;
+    color: #e2e8f0;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+}
+
+button,
+select,
+textarea,
+input {
+    font: inherit;
+}
+
+.card {
+    @apply rounded-2xl border border-white/10 bg-[#0c1324] p-5 shadow-2xl shadow-black/10;
+}
+
+.section-title {
+    @apply mb-4 text-lg font-semibold;
+}
+
+.row {
+    @apply flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-black/10 p-3;
+}
+
+.pill {
+    @apply inline-flex rounded-full border px-2.5 py-1 text-xs font-medium;
+}
+
+.label {
+    @apply mb-2 mt-4 block text-xs font-semibold uppercase tracking-wider text-slate-500;
+}
+
+.input {
+    @apply w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-400/50;
+}
+
+.btn-primary {
+    @apply rounded-xl bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-200;
+}
+
+.btn-danger {
+    @apply rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-200 hover:bg-red-500/20;
+}
