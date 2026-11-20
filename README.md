@@ -1,5 +1,7 @@
 # AgentGuard MCP - AI Agent Permission & Audit Platform
 
+[![CI](https://github.com/justaformality/AgentGuard-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/justaformality/AgentGuard-MCP/actions/workflows/ci.yml)
+
 AgentGuard MCP is an AI agent governance platform built around the **Model Context Protocol (MCP)**.
 
 It acts as a control layer between AI agents and the tools they want to use, enforcing **per-agent permissions, risk-based policies, human approval gates, and audit logging** before tool calls are executed.
@@ -450,14 +452,13 @@ The React dashboard communicates with the FastAPI backend to manage agents, perm
 ## Project Structure
 
 ```text
-agentguard-mcp/
+AgentGuard-MCP/
 ├── backend/
 │   ├── app/
-│   │   ├── mcp_server/
-│   │   ├── policy/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   ├── tool_server/
+│   │   ├── mcp_server/          # MCP server + governed executor
+│   │   ├── routes/              # FastAPI routes (agents, tools, approvals, audit logs)
+│   │   ├── services/            # policy_engine.py, GitHub + Gemini clients
+│   │   ├── tool_server/         # governed tool implementations
 │   │   ├── main.py
 │   │   ├── models.py
 │   │   ├── schemas.py
@@ -484,12 +485,14 @@ agentguard-mcp/
 │   ├── package.json
 │   └── package-lock.json
 │
-├── docs/
-├── mcp-server/
+├── docs/                        # policy engine + MCP tool server design notes
+├── .github/workflows/ci.yml
 ├── .gitignore
 ├── docker-compose.yml
 └── README.md
 ```
+
+Design notes: [Policy engine](docs/policy-engine.md) · [MCP-style tool server](docs/mcp-style-tool-server.md)
 
 ---
 
@@ -508,6 +511,24 @@ Optional integrations require:
 
 - GitHub personal access token
 - Google Gemini API key
+
+---
+
+## Quick Start with Docker Compose
+
+If you have Docker installed, this runs the backend and dashboard together:
+
+```bash
+cp backend/.env.example backend/.env
+docker compose up --build
+```
+
+- Dashboard: http://localhost:5173
+- API: http://localhost:8000 (docs at http://localhost:8000/docs)
+
+The SQLite database is kept in a named Docker volume (`agentguard_data`), so it persists across restarts.
+
+To run each piece locally without Docker, follow the sections below.
 
 ---
 
