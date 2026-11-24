@@ -15,6 +15,10 @@ async function api<T>(path:string, init?:RequestInit):Promise<T>{
   return res.json();
 }
 
+type Dashboard = [Agent[], Tool[], Approval[], Audit[]];
+const fetchDashboard = ():Promise<Dashboard> =>
+  Promise.all([api<Agent[]>("/agents"),api<Tool[]>("/tools"),api<Approval[]>("/approvals"),api<Audit[]>("/audit-logs")]);
+
 const pill = (value:string) => {
   const v=value.toLowerCase();
   if(["high","blocked","failed","rejected"].includes(v)) return "bg-red-500/10 text-red-300 border-red-500/20";
@@ -29,14 +33,27 @@ function App(){
   const [loading,setLoading]=useState(true); const [error,setError]=useState(""); const [notice,setNotice]=useState("");
   const [runnerAgent,setRunnerAgent]=useState<number|"">(""); const [runnerTool,setRunnerTool]=useState<number|"">(""); const [runnerInput,setRunnerInput]=useState("Generate a regression test plan for password reset."); const [runnerResult,setRunnerResult]=useState<unknown>(null);
 
-  const load=useCallback(async()=>{
-    setError("");
-    try{
-      const [a,t,p,l]=await Promise.all([api<Agent[]>("/agents"),api<Tool[]>("/tools"),api<Approval[]>("/approvals"),api<Audit[]>("/audit-logs")]);
-      setAgents(a);setTools(t);setApprovals(p);setAudit(l); if(runnerAgent===""&&a[0])setRunnerAgent(a[0].id); if(runnerTool===""&&t[0])setRunnerTool(t[0].id);
-    }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setLoading(false);}
-  },[runnerAgent,runnerTool]);
-  useEffect(()=>{void load()},[]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Setters are stable, so this callback is too.
+  const applyDashboard=useCallback(([a,t,p,l]:Dashboard)=>{ setError(""); setAgents(a);setTools(t);setApprovals(p);setAudit(l); },[]);
+  const applyError=useCallback((e:unknown)=>setError(e instanceof Error?e.message:String(e)),[]);
+
+  // Initial load: state is only set inside promise callbacks, never
+  // synchronously in the effect body, and not at all after unmount.
+  useEffect(()=>{
+    let active=true;
+    fetchDashboard()
+      .then(d=>{ if(active) applyDashboard(d); },e=>{ if(active) applyError(e); })
+      .finally(()=>{ if(active) setLoading(false); });
+    return ()=>{ active=false; };
+  },[applyDashboard,applyError]);
+
+  // Refresh after a user action.
+  async function load(){ try{ applyDashboard(await fetchDashboard()); }catch(e){ applyError(e); } }
+
+  // Until the user picks one, the runner defaults to the first agent/tool.
+  // Derived in render rather than copied into state during load().
+  const selectedAgent:number|""=runnerAgent===""?(agents[0]?.id??""):runnerAgent;
+  const selectedTool:number|""=runnerTool===""?(tools[0]?.id??""):runnerTool;
 
   const pending=approvals.filter(a=>a.status==="pending");
   const stats=[
@@ -52,7 +69,7 @@ function App(){
   }
   async function toggleTool(tool:Tool){ try{await api(`/tools/${tool.id}`,{method:"PUT",body:JSON.stringify({enabled:!tool.enabled})});await load();}catch(e){setError(String(e));} }
   async function decide(id:number,action:"approve"|"reject"){ try{const reason=action==="approve"?"Approved from AgentGuard dashboard.":"Rejected from AgentGuard dashboard.";await api(`/approvals/${id}/${action}`,{method:"POST",body:JSON.stringify({decision_reason:reason})});setNotice(`Approval ${id} ${action}d.`);await load();}catch(e){setError(String(e));} }
-  async function runTask(){ if(runnerAgent===""||runnerTool==="")return; setRunnerResult(null); try{const r=await api("/run-agent-task",{method:"POST",body:JSON.stringify({agent_id:runnerAgent,tool_id:runnerTool,input_text:runnerInput})});setRunnerResult(r);await load();}catch(e){setRunnerResult({error:String(e)});} }
+  async function runTask(){ if(selectedAgent===""||selectedTool==="")return; setRunnerResult(null); try{const r=await api("/run-agent-task",{method:"POST",body:JSON.stringify({agent_id:selectedAgent,tool_id:selectedTool,input_text:runnerInput})});setRunnerResult(r);await load();}catch(e){setRunnerResult({error:String(e)});} }
 
   return <div className="min-h-screen bg-[#070b14] text-slate-100">
     <div className="flex min-h-screen">
@@ -69,11 +86,11 @@ function App(){
           {error&&<div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>}
           {loading?<div className="py-20 text-center text-slate-400">Loading governance data…</div>:<>
             {tab==="Overview"&&<><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([a,b,c])=><div key={a as string} className="card"><p className="text-sm text-slate-400">{a}</p><div className="mt-2 text-3xl font-bold">{b}</div><p className="mt-2 text-xs text-slate-500">{c}</p></div>)}</div><div className="mt-6 grid gap-6 xl:grid-cols-2"><section className="card"><h2 className="section-title">Recent tool calls</h2><div className="space-y-3">{audit.slice(0,6).map(x=><div key={x.id} className="row"><div><div className="font-medium">{x.tool_name||"Unknown tool"}</div><div className="text-xs text-slate-500">{x.agent_name||"Unknown agent"} · {new Date(x.created_at).toLocaleString()}</div></div><span className={`pill ${pill(x.status)}`}>{x.status}</span></div>)}{audit.length===0&&<Empty text="No tool calls yet."/>}</div></section><section className="card"><h2 className="section-title">Approval queue</h2><div className="space-y-3">{pending.slice(0,6).map(x=><div key={x.id} className="row"><div><div className="font-medium">{toolById[x.tool_id]?.name||`Tool ${x.tool_id}`}</div><div className="text-xs text-slate-500">{agentById[x.agent_id]?.name||`Agent ${x.agent_id}`}</div></div><span className={`pill ${pill("pending")}`}>pending</span></div>)}{pending.length===0&&<Empty text="No pending approvals."/>}</div></section></div></>}
-            {tab==="Agents"&&<div className="grid gap-5 xl:grid-cols-2">{agents.map(agent=><AgentCard key={agent.id} agent={agent} tools={tools} onSave={saveAgent}/>)}</div>}
+            {tab==="Agents"&&<div className="grid gap-5 xl:grid-cols-2">{agents.map(agent=><AgentCard key={`${agent.id}:${agent.allowed_tools.join(",")}`} agent={agent} tools={tools} onSave={saveAgent}/>)}</div>}
             {tab==="Tools"&&<div className="card overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="text-xs uppercase text-slate-500"><tr><th className="pb-3">Tool</th><th>Category</th><th>Risk</th><th>Action</th><th>Approval</th><th>Enabled</th></tr></thead><tbody>{tools.map(t=><tr key={t.id} className="border-t border-white/5"><td className="py-4 pr-5"><div className="font-medium">{t.name}</div><div className="mt-1 max-w-xl text-xs text-slate-500">{t.description}</div></td><td>{t.category}</td><td><span className={`pill ${pill(t.risk_level)}`}>{t.risk_level}</span></td><td>{t.action_type}</td><td>{t.requires_approval?"Required":"Automatic"}</td><td><button onClick={()=>void toggleTool(t)} className={`rounded-lg border px-3 py-1 text-xs ${t.enabled?pill("active"):pill("blocked")}`}>{t.enabled?"Enabled":"Disabled"}</button></td></tr>)}</tbody></table></div>}
             {tab==="Approvals"&&<div className="space-y-4">{approvals.map(a=><section key={a.id} className="card"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-semibold">{toolById[a.tool_id]?.name||`Tool ${a.tool_id}`}</div><div className="mt-1 text-sm text-slate-400">Requested by {agentById[a.agent_id]?.name||`Agent ${a.agent_id}`} · {new Date(a.created_at).toLocaleString()}</div></div><span className={`pill ${pill(a.status)}`}>{a.status}</span></div><pre className="mt-4 max-h-52 overflow-auto whitespace-pre-wrap rounded-xl bg-black/25 p-4 text-xs text-slate-300">{a.input_summary}</pre>{a.decision_reason&&<p className="mt-3 text-sm text-slate-400">Decision: {a.decision_reason}</p>}{a.status==="pending"&&<div className="mt-4 flex gap-2"><button onClick={()=>void decide(a.id,"approve")} className="btn-primary">Approve & execute</button><button onClick={()=>void decide(a.id,"reject")} className="btn-danger">Reject</button></div>}</section>)}{approvals.length===0&&<Empty text="No approval requests yet."/>}</div>}
             {tab==="Audit"&&<div className="card overflow-x-auto"><table className="w-full min-w-[950px] text-left text-sm"><thead className="text-xs uppercase text-slate-500"><tr><th className="pb-3">Time</th><th>Agent</th><th>Tool</th><th>Status</th><th>Risk</th><th>Approval</th><th>Summary</th></tr></thead><tbody>{audit.map(x=><tr key={x.id} className="border-t border-white/5"><td className="py-4 pr-3 text-xs text-slate-500">{new Date(x.created_at).toLocaleString()}</td><td>{x.agent_name||"—"}</td><td>{x.tool_name||"—"}</td><td><span className={`pill ${pill(x.status)}`}>{x.status}</span></td><td>{x.risk_level||"—"}</td><td>{x.approval_status||"—"}</td><td className="max-w-md truncate text-slate-400">{x.error_message||x.output_summary||x.input_summary}</td></tr>)}</tbody></table></div>}
-            {tab==="Runner"&&<div className="grid gap-6 xl:grid-cols-2"><section className="card"><h2 className="section-title">Run a governed tool call</h2><label className="label">Agent</label><select className="input" value={runnerAgent} onChange={e=>setRunnerAgent(Number(e.target.value))}>{agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><label className="label">Tool</label><select className="input" value={runnerTool} onChange={e=>setRunnerTool(Number(e.target.value))}>{tools.map(t=><option key={t.id} value={t.id}>{t.name} · {t.risk_level}/{t.action_type}</option>)}</select><label className="label">Input</label><textarea className="input min-h-40" value={runnerInput} onChange={e=>setRunnerInput(e.target.value)} /><p className="mt-2 text-xs text-slate-500">GitHub tools expect JSON. Example PR: {`{"owner":"octocat","repo":"Hello-World","pull_number":1}`}</p><button onClick={()=>void runTask()} className="btn-primary mt-4">Run through policy engine</button></section><section className="card"><h2 className="section-title">Governed result</h2>{runnerResult?<pre className="max-h-[600px] overflow-auto whitespace-pre-wrap rounded-xl bg-black/25 p-4 text-xs text-slate-300">{JSON.stringify(runnerResult,null,2)}</pre>:<Empty text="Run a tool to see policy, approval, execution, and audit results."/>}</section></div>}
+            {tab==="Runner"&&<div className="grid gap-6 xl:grid-cols-2"><section className="card"><h2 className="section-title">Run a governed tool call</h2><label className="label">Agent</label><select className="input" value={selectedAgent} onChange={e=>setRunnerAgent(Number(e.target.value))}>{agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><label className="label">Tool</label><select className="input" value={selectedTool} onChange={e=>setRunnerTool(Number(e.target.value))}>{tools.map(t=><option key={t.id} value={t.id}>{t.name} · {t.risk_level}/{t.action_type}</option>)}</select><label className="label">Input</label><textarea className="input min-h-40" value={runnerInput} onChange={e=>setRunnerInput(e.target.value)} /><p className="mt-2 text-xs text-slate-500">GitHub tools expect JSON. Example PR: {`{"owner":"octocat","repo":"Hello-World","pull_number":1}`}</p><button onClick={()=>void runTask()} className="btn-primary mt-4">Run through policy engine</button></section><section className="card"><h2 className="section-title">Governed result</h2>{runnerResult?<pre className="max-h-[600px] overflow-auto whitespace-pre-wrap rounded-xl bg-black/25 p-4 text-xs text-slate-300">{JSON.stringify(runnerResult,null,2)}</pre>:<Empty text="Run a tool to see policy, approval, execution, and audit results."/>}</section></div>}
           </>}
         </div>
       </main>
@@ -81,8 +98,11 @@ function App(){
   </div>
 }
 
+// The parent keys this card on the agent's saved permissions, so when the
+// server's allowed_tools change React remounts it with fresh local state.
+// No effect is needed to copy the prop into state.
 function AgentCard({agent,tools,onSave}:{agent:Agent;tools:Tool[];onSave:(a:Agent,allowed:string[])=>Promise<void>}){
-  const [allowed,setAllowed]=useState<string[]>(agent.allowed_tools); useEffect(()=>setAllowed(agent.allowed_tools),[agent.allowed_tools]);
+  const [allowed,setAllowed]=useState<string[]>(agent.allowed_tools);
   const toggle=(name:string)=>setAllowed(v=>v.includes(name)?v.filter(x=>x!==name):[...v,name]);
   return <section className="card"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{agent.name}</h2><p className="mt-1 text-sm text-slate-400">{agent.role}</p></div><span className={`pill ${pill(agent.status)}`}>{agent.status}</span></div><div className="mt-5 text-xs font-semibold uppercase tracking-wider text-slate-500">Tool permissions</div><div className="mt-3 grid gap-2 sm:grid-cols-2">{tools.map(t=><label key={t.id} className="flex items-start gap-3 rounded-xl border border-white/5 bg-black/15 p-3"><input type="checkbox" className="mt-1" checked={allowed.includes(t.name)} onChange={()=>toggle(t.name)}/><span><span className="block text-sm font-medium">{t.name}</span><span className="text-xs text-slate-500">{t.risk_level} · {t.action_type}{t.requires_approval?" · approval":""}</span></span></label>)}</div><button onClick={()=>void onSave(agent,allowed)} className="btn-primary mt-4">Save permissions</button></section>
 }
